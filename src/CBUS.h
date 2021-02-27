@@ -129,6 +129,6 @@ protected:
   char msgstr[64], dstr[64];
   byte enums = 0, selected_id;
   byte enum_responses[16];               // 128 bits for storing CAN ID enumeration results
-  bool enumeration_required;
-
+  bool enumeration_required = 0;
+  bool UI = 0;
 };
