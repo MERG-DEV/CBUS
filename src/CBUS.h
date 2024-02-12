@@ -238,7 +238,8 @@ public:
   CBUSLongMessageEx(CBUSbase *cbus_object_ptr)
     : CBUSLongMessage(cbus_object_ptr) {}         // derived class constructor calls the base class constructor
 
-  bool allocateContexts(byte num_receive_contexts = NUM_EX_CONTEXTS, unsigned int receive_buffer_len = EX_BUFFER_LEN, byte num_send_contexts = NUM_EX_CONTEXTS);
+  bool allocateContexts(byte num_receive_contexts, unsigned int receive_buffer_len, byte num_send_contexts);
+  bool allocateContextsBuffers(byte num_receive_contexts, unsigned int receive_buffer_len, byte num_send_contexts, unsigned int send_buffer_len);
   bool sendLongMessage(const void *msg, const unsigned int msg_len, const byte stream_id, const byte priority = DEFAULT_PRIORITY);
   bool process(void);
   void subscribe(byte *stream_ids, const byte num_stream_ids, void (*messagehandler)(void *msg, unsigned int msg_len, byte stream_id, byte status));
@@ -267,7 +268,7 @@ typedef struct _buffer_entry2 {
 
 //
 
-class circular_buffer2 {
+class circular_buffer2 {          // avoid name clash with implementation in CBUSMCP_CAN
 
 public:
   circular_buffer2(byte num_items);
