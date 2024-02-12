@@ -341,6 +341,12 @@ void CBUSLongMessage::setTimeout(unsigned int timeout_in_millis) {
 
 bool CBUSLongMessageEx::allocateContexts(byte num_receive_contexts, unsigned int receive_buffer_len, byte num_send_contexts) {
 
+	return allocateContextsBuffers(num_receive_contexts, receive_buffer_len, num_send_contexts, 0);
+}
+
+bool CBUSLongMessageEx::allocateContextsBuffers(byte num_receive_contexts, unsigned int receive_buffer_len, byte num_send_contexts, unsigned int send_buffer_len) {
+
+
 	byte i;
 
 	// DEBUG_SERIAL << F("> receive_context_t * = ") << sizeof(receive_context_t *) << F(", receive_context_t = ") << sizeof(receive_context_t) << endl;
@@ -374,6 +380,14 @@ bool CBUSLongMessageEx::allocateContexts(byte num_receive_contexts, unsigned int
 	for (i = 0; i < _num_send_contexts; i++) {
 		if ((_send_context[i] = (send_context_t *)malloc(sizeof(send_context_t))) == NULL) {
 			return false;
+		}
+
+		_send_buffer_len = send_buffer_len;
+
+		if (send_buffer_len > 0) {
+			if ((_send_context[i]->buffer = (byte *)malloc(send_buffer_len * sizeof(byte))) == NULL) {
+				return false;
+			}
 		}
 
 		_send_context[i]->in_use = false;
@@ -412,7 +426,7 @@ bool CBUSLongMessageEx::sendLongMessage(const void *msg, const unsigned int msg_
 		}
 	}
 
-	if (i > _num_send_contexts) {
+	if (i >= _num_send_contexts) {
 		// DEBUG_SERIAL << F("> Lex: ERROR: unable to find free send context") << endl;
 		return false;
 	}
@@ -422,12 +436,24 @@ bool CBUSLongMessageEx::sendLongMessage(const void *msg, const unsigned int msg_
 	// initialise context
 	_send_context[i]->in_use = true;
 	// _send_context[i]->buffer = (byte *)msg;
-	_send_context[i]->buffer = (byte *)strdup((char *)msg);														// copy the message to the send content, will free later
+
+	if (_send_buffer_len > 0) {
+		byte *ptr = (byte *) msg;
+		byte len = msg_len;
+		if (len > _send_buffer_len) {
+			len = _send_buffer_len;
+		}
+
+		memcpy(_send_context[i]->buffer, ptr, len);
+	}
+	else {
+		_send_context[i]->buffer = (byte *)strdup((char *)msg);		// copy the message to the send content, will free later
+	}
 	_send_context[i]->send_buffer_len = msg_len;
 	_send_context[i]->send_stream_id = stream_id;
 	_send_context[i]->send_priority = priority;
 	_send_context[i]->send_buffer_index = 0;
-
+	_send_context[i]->last_fragment_sent = millis();
 	// calc CRC
 	if (_use_crc) {
 		msg_crc = crc16((uint8_t *)msg, msg_len);
@@ -501,7 +527,9 @@ bool CBUSLongMessageEx::process(void) {
 		if (_send_context[context]->send_buffer_index >= _send_context[context]->send_buffer_len) {
 			_send_context[context]->in_use = false;
 			_send_context[context]->send_buffer_len = 0;
-			free(_send_context[context]->buffer);
+			if (_send_buffer_len == 0) {
+				free(_send_context[context]->buffer);
+			}
 			// DEBUG_SERIAL << F("> Lex: message complete, context released") << endl;
 		} else {
 			++_send_context[context]->send_sequence_num;
