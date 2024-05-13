@@ -437,6 +437,19 @@ bool CBUSLongMessageEx::sendLongMessage(const void *msg, const unsigned int msg_
 	_send_context[i]->in_use = true;
 	// _send_context[i]->buffer = (byte *)msg;
 
+	// determine if this is the current context for sequential transmissions
+	// we are current if no other contexts are current
+
+	if (_is_sequential) {
+		_send_context[i]->is_current = true;
+		for (j = 0; j < _num_send_contexts; j++) {
+			if (_send_context[j]->is_current) {
+				_send_context[i]->is_current = false;
+			}
+			break;
+		}
+	}
+
 	if (_send_buffer_len > 0) {
 		byte *ptr = (byte *) msg;
 		byte len = msg_len;
@@ -449,11 +462,13 @@ bool CBUSLongMessageEx::sendLongMessage(const void *msg, const unsigned int msg_
 	else {
 		_send_context[i]->buffer = (byte *)strdup((char *)msg);		// copy the message to the send content, will free later
 	}
+
 	_send_context[i]->send_buffer_len = msg_len;
 	_send_context[i]->send_stream_id = stream_id;
 	_send_context[i]->send_priority = priority;
 	_send_context[i]->send_buffer_index = 0;
 	_send_context[i]->last_fragment_sent = millis();
+
 	// calc CRC
 	if (_use_crc) {
 		msg_crc = crc16((uint8_t *)msg, msg_len);
@@ -483,7 +498,7 @@ bool CBUSLongMessageEx::sendLongMessage(const void *msg, const unsigned int msg_
 bool CBUSLongMessageEx::process(void) {
 
 	bool ret = true;
-	byte i;
+	byte i, j;
 	CANFrame frame;
 
 	static byte context = 0;				// we round-robin the context list when sending
@@ -503,6 +518,16 @@ bool CBUSLongMessageEx::process(void) {
 
 	/// send the next outgoing fragment from each active context, after a configurable delay to avoid flooding the bus
 	/// concurrent streams will be interleaved
+
+	// if sequential, the context to use is he current one
+	if (_is_sequential) {
+		for (j = 0; j < _num_send_contexts; j++) {
+			if (_send_context[j]->is_current) {
+				context = j;
+				break;
+			}
+		}
+	}
 
 	if (_send_context[context]->in_use && millis() - _send_context[context]->last_fragment_sent >= _msg_delay)  {
 
@@ -526,10 +551,23 @@ bool CBUSLongMessageEx::process(void) {
 		// release context once message content exhausted
 		if (_send_context[context]->send_buffer_index >= _send_context[context]->send_buffer_len) {
 			_send_context[context]->in_use = false;
+			_receive_context[i]->is_current = false;
 			_send_context[context]->send_buffer_len = 0;
+
 			if (_send_buffer_len == 0) {
 				free(_send_context[context]->buffer);
 			}
+
+			// find another active context to make current
+			if (_is_sequential) {
+				for (j = 0; j < _num_send_contexts; j++) {
+					if (_send_context[j].in_use) {
+						_send_context[j].is_current = true;
+						break;
+					}
+				}
+			}
+
 			// DEBUG_SERIAL << F("> Lex: message complete, context released") << endl;
 		} else {
 			++_send_context[context]->send_sequence_num;
@@ -706,6 +744,12 @@ void CBUSLongMessageEx::use_crc(bool use_crc) {
 	_use_crc = use_crc;
 	return;
 }
+
+void CBUSLongMessageEx::set_sequential(bool state) {
+
+	_is_sequential = state;
+}
+
 
 ///////////////////////////////////////////////////////////////////////////////
 //////// CRC implementations

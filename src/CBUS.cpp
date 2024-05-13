@@ -448,7 +448,7 @@ void CBUSbase::process(byte num_messages) {
     /// doesn't apply to RTR or zero-length frames, so as not to trigger an enumeration loop
     //
 
-    if (remoteCANID == module_config->CANID && _msg.len > 0) {
+    if (remoteCANID == module_config->CANID && _msg.len > 0 && nn != module_config->nodeNum) {
       // DEBUG_SERIAL << F("> CAN id clash, enumeration required") << endl;
       enumeration_required = true;
     }

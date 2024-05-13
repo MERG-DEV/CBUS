@@ -220,7 +220,7 @@ typedef struct _receive_context_t {
 } receive_context_t;
 
 typedef struct _send_context_t {
-  bool in_use;
+  bool in_use, is_current;
   byte send_stream_id, send_priority, msg_delay;
   byte *buffer;
   unsigned int send_buffer_len, send_buffer_index, send_sequence_num;
@@ -246,10 +246,12 @@ public:
   virtual void processReceivedMessageFragment(const CANFrame *frame);
   byte is_sending(void);
   void use_crc(bool use_crc);
+  void set_sequential(bool state);
 
 private:
 
   bool _use_crc = false;
+  bool _is_sequential = false;
   byte _num_receive_contexts = NUM_EX_CONTEXTS, _num_send_contexts = NUM_EX_CONTEXTS;
   receive_context_t **_receive_context = nullptr;
   send_context_t **_send_context = nullptr;
