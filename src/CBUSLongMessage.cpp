@@ -48,6 +48,34 @@ uint16_t crc16(uint8_t *data_p, uint16_t length);
 uint32_t crc32(const char *s, size_t n);
 
 //
+/// log a message with a variable number of arguments
+//
+
+#define VLOG_DEBUG 0
+#define DEBUG_MSG_LEN 256
+
+void VLOG(const char fmt[], ...) {
+
+#if VLOG_DEBUG == 0
+	return;
+#endif
+
+	va_list vptr;
+	char tmpbuff[DEBUG_MSG_LEN];
+
+	if (strlen(fmt) == 0) {
+		Serial.printf("\n");
+	} else {
+		va_start(vptr, fmt);
+		vsnprintf(tmpbuff, DEBUG_MSG_LEN - 1, fmt, vptr);
+		va_end(vptr);
+		Serial.printf("%10lu: %s\n", millis(), tmpbuff);
+	}
+
+	return;
+}
+
+//
 /// constructor
 /// receives a pointer to a CBUS object which provides the CAN message handling capability
 //
@@ -76,7 +104,7 @@ void CBUSLongMessage::subscribe(byte *stream_ids, const byte num_stream_ids, voi
 
 //
 /// initiate sending of a long message
-/// this method sends the first message - the header packet
+/// this method sends the first message - the header fragment
 /// the remainder of the message is sent in chunks from the process() method
 //
 
@@ -84,7 +112,7 @@ bool CBUSLongMessage::sendLongMessage(const void *msg, const unsigned int msg_le
 
 	CANFrame frame;
 
-	// DEBUG_SERIAL << F("> L: sending message header packet, stream id = ") << stream_id << F(", message length = ") << msg_len << F(", first char = ") << (char)msg[0] << endl;
+	// DEBUG_SERIAL << F("> L: sending message header fragment, stream id = ") << stream_id << F(", message length = ") << msg_len << F(", first char = ") << (char)msg[0] << endl;
 
 	if (is_sending()) {
 		// DEBUG_SERIAL << F("> L: ERROR: there is already a message in progress") << endl;
@@ -101,14 +129,14 @@ bool CBUSLongMessage::sendLongMessage(const void *msg, const unsigned int msg_le
 
 	// send the first fragment which forms the message header
 	frame.data[1] = _send_stream_id;																									// the unique stream id
-	frame.data[2] = _send_sequence_num;																								// sequence number, 0 = header packet
+	frame.data[2] = _send_sequence_num;																								// sequence number, 0 = header fragment
 	frame.data[3] = highByte(msg_len);																								// the message length
 	frame.data[4] = lowByte(msg_len);
 	frame.data[5] = 0;																																// CRC - not implemented for lite version
 	frame.data[6] = 0;
 	frame.data[7] = 0;																																// flags - 0 = standard data message
 
-	bool ret = sendMessageFragment(&frame, _send_priority);														// send the header packet
+	bool ret = sendMessageFragment(&frame, _send_priority);														// send the header fragment
 	++_send_sequence_num;																															// increment the sending sequence number - it's fine if it wraps around
 
 	// DEBUG_SERIAL << F("> L: message header sent, stream id = ") << _send_stream_id << F(", message length = ") << _send_buffer_len << endl;
@@ -129,7 +157,7 @@ bool CBUSLongMessage::process(void) {
 	/// check receive timeout
 
 	if (_is_receiving && (millis() - _last_fragment_received >= _receive_timeout)) {
-		// DEBUG_SERIAL << F("> L: ERROR: timed out waiting for continuation packet") << endl;
+		// DEBUG_SERIAL << F("> L: ERROR: timed out waiting for continuation fragment") << endl;
 		(void)(*_messagehandler)(_receive_buffer, _receive_buffer_index, _receive_stream_id, CBUS_LONG_MESSAGE_TIMEOUT_ERROR);
 		_is_receiving = false;
 		_incoming_message_length = 0;
@@ -156,7 +184,7 @@ bool CBUSLongMessage::process(void) {
 			++_send_buffer_index;
 		}
 
-		ret = sendMessageFragment(&frame, _send_priority);																			// send the data packet
+		ret = sendMessageFragment(&frame, _send_priority);																			// send the data fragment
 		// DEBUG_SERIAL << F("> L: process: sent message fragment, seq = ") << _send_sequence_num << F(", size = ") << i << endl;
 
 		++_send_sequence_num;
@@ -174,7 +202,7 @@ void CBUSLongMessage::processReceivedMessageFragment(const CANFrame *frame) {
 
 	/// handle a received message fragment
 
-	// DEBUG_SERIAL << F("> L: processing received long message packet, message length = ") << _incoming_message_length << F(", rcvd so far = ") << _incoming_bytes_received << endl;
+	// DEBUG_SERIAL << F("> L: processing received long message fragment, message length = ") << _incoming_message_length << F(", rcvd so far = ") << _incoming_bytes_received << endl;
 
 	_last_fragment_received = millis();
 
@@ -182,7 +210,7 @@ void CBUSLongMessage::processReceivedMessageFragment(const CANFrame *frame) {
 
 	if (!_is_receiving) {																																	// not currently receiving a long message
 
-		if (frame->data[2] == 0) {																													// sequence zero = a header packet with start of new stream
+		if (frame->data[2] == 0) {																													// sequence zero = a header fragment with start of new stream
 			if (frame->data[7] == 0) {																												// flags = 0, standard messages
 				for (i = 0; i < _num_stream_ids; i++) {
 					if (_stream_ids[i] == frame->data[1]) {																				// are we subscribed to this stream id ?
@@ -195,7 +223,7 @@ void CBUSLongMessage::processReceivedMessageFragment(const CANFrame *frame) {
 						_receive_buffer_index = 0;
 						_expected_next_receive_sequence_num = 0;
 						_sender_canid = (frame->id & 0x7f);
-						// DEBUG_SERIAL << F("> L: received header packet for stream id = ") << _receive_stream_id << F(", message length = ") << _incoming_message_length << F(", user buffer len = ") << _receive_buffer_len << endl;
+						// DEBUG_SERIAL << F("> L: received header fragment for stream id = ") << _receive_stream_id << F(", message length = ") << _incoming_message_length << F(", user buffer len = ") << _receive_buffer_len << endl;
 						break;
 					}
 				}
@@ -212,7 +240,7 @@ void CBUSLongMessage::processReceivedMessageFragment(const CANFrame *frame) {
 
 				if (frame->data[2] == _expected_next_receive_sequence_num) {										// and it's the expected sequence id
 
-					// DEBUG_SERIAL << F("> L: received continuation packet, seq = ") << _expected_next_receive_sequence_num << endl;
+					// DEBUG_SERIAL << F("> L: received continuation fragment, seq = ") << _expected_next_receive_sequence_num << endl;
 
 					// for each of the maximum five payload bytes, up to the total message length and the user buffer length
 					for (j = 0; j < 5; j++) {
@@ -296,13 +324,28 @@ bool CBUSLongMessage::is_sending(void) {
 /// send next message fragment
 //
 
-bool CBUSLongMessage::sendMessageFragment(CANFrame * frame, const byte priority) {
+bool CBUSLongMessage::sendMessageFragment(CANFrame *frame, const byte priority) {
+
+	bool ret;
+	char buffer[64], t[8];
 
 	// these are common to all messages
 	frame->len = 8;
 	frame->data[0] = OPC_DTXC;
 
-	return (_cbus_object_ptr->sendMessage(frame, false, false, priority));
+	ret = (_cbus_object_ptr->sendMessage(frame, false, false, priority));
+
+	sprintf(buffer, "[%lu] [%u] [ ", frame->id, frame->len);
+	for (byte i = 0; i < frame->len; i++) {
+		sprintf(t, "%02x ", frame->data[i]);
+		strcat(buffer, t);
+	}
+	sprintf(t, "]");
+	strcat(buffer, t);
+
+	// VLOG(buffer);
+
+	return ret;
 }
 
 //
@@ -349,150 +392,168 @@ bool CBUSLongMessageEx::allocateContextsBuffers(byte num_receive_contexts, unsig
 
 	byte i;
 
-	// DEBUG_SERIAL << F("> receive_context_t * = ") << sizeof(receive_context_t *) << F(", receive_context_t = ") << sizeof(receive_context_t) << endl;
-
 	_num_receive_contexts = num_receive_contexts;
 	_receive_buffer_len = receive_buffer_len;
 	_num_send_contexts = num_send_contexts;
+	_send_buffer_len = send_buffer_len;
 
 	// allocate receive contexts
-	if ((_receive_context = (receive_context_t **)malloc(sizeof(receive_context_t *) * _num_receive_contexts)) == NULL) {
+	if ((_receive_contexts = (receive_context_t **)malloc(sizeof(receive_context_t *) * _num_receive_contexts)) == NULL) {
 		return false;
 	}
 
 	for (i = 0; i < _num_receive_contexts; i++) {
-		if ((_receive_context[i] = (receive_context_t *)malloc(sizeof(receive_context_t))) == NULL) {
+		if ((_receive_contexts[i] = (receive_context_t *)malloc(sizeof(receive_context_t))) == NULL) {
 			return false;
 		}
 
-		if ((_receive_context[i]->buffer = (byte *)malloc(receive_buffer_len * sizeof(byte))) == NULL) {
+		if ((_receive_contexts[i]->buffer = (byte *)malloc(receive_buffer_len * sizeof(byte))) == NULL) {
 			return false;
 		}
 
-		_receive_context[i]->in_use = false;
+		_receive_contexts[i]->in_use = false;
 	}
 
 	// allocate send contexts - user code provides the buffer when sending
-	if ((_send_context = (send_context_t **)malloc(sizeof(send_context_t *) * _num_send_contexts)) == NULL) {
+	if ((_send_contexts = (send_context_t **)malloc(sizeof(send_context_t *) * _num_send_contexts)) == NULL) {
 		return false;
 	}
 
 	for (i = 0; i < _num_send_contexts; i++) {
-		if ((_send_context[i] = (send_context_t *)malloc(sizeof(send_context_t))) == NULL) {
+		if ((_send_contexts[i] = (send_context_t *)malloc(sizeof(send_context_t))) == NULL) {
 			return false;
 		}
 
-		_send_buffer_len = send_buffer_len;
-
 		if (send_buffer_len > 0) {
-			if ((_send_context[i]->buffer = (byte *)malloc(send_buffer_len * sizeof(byte))) == NULL) {
+			if ((_send_contexts[i]->buffer = (byte *)malloc(send_buffer_len * sizeof(byte))) == NULL) {
 				return false;
 			}
 		}
 
-		_send_context[i]->in_use = false;
+		_send_contexts[i]->in_use = false;
+		_send_contexts[i]->is_current = false;
 	}
 
-	// DEBUG_SERIAL << F("> Lex: allocated send and receive contexts ok") << endl;
+	current_send_context = 0;
+	_last_fragment_sent = millis();			// in any context
+
+	// VLOG("allocated send and receive contexts ok");
 	return true;
 }
 
 //
 /// initiate sending of a long message
-/// this method sends the first message - the header packet
+/// this method sends the first message - the header fragment
 /// the remainder of the message is sent in fragments from the process() method
 //
 
 bool CBUSLongMessageEx::sendLongMessage(const void *msg, const unsigned int msg_len, const byte stream_id, const byte priority) {
 
-	byte i;
-	uint16_t msg_crc = 0;
+	byte context, j;
 	CANFrame frame;
 
-	// DEBUG_SERIAL << F("> Lex: sending message header packet, stream id = ") << stream_id << F(", message length = ") << msg_len << endl;
+	// VLOG("submitting message, stream = %u, len - %u", stream_id, msg_len);
 
-	// ensure we aren't already sending a message with this stream ID
-	for (i = 0; i < _num_send_contexts; i++) {
-		if (_send_context[i]->in_use && _send_context[i]->send_stream_id == stream_id) {
-			// DEBUG_SERIAL << F("> Lex: ERROR: already sending this stream ID") << endl;
-			return false;
+	// if interleaving, ensure we aren't already sending a message with this stream ID
+	if (!_is_sequential) {
+		for (context = 0; context < _num_send_contexts; context++) {
+			if (_send_contexts[context]->in_use && _send_contexts[context]->send_stream_id == stream_id) {
+				// VLOG("ERROR: already sending on stream = %u", stream_id);
+				return false;
+			}
 		}
 	}
 
 	// find a free send context
-	for (i = 0; i < _num_send_contexts; i++) {
-		if (!_send_context[i]->in_use) {
+	for (context = 0; context < _num_send_contexts; context++) {
+		if (!_send_contexts[context]->in_use) {
 			break;
 		}
 	}
 
-	if (i >= _num_send_contexts) {
-		// DEBUG_SERIAL << F("> Lex: ERROR: unable to find free send context") << endl;
+	// no free context avalable
+	if (context >= _num_send_contexts) {
+		// VLOG("ERROR: unable to find a free send context");
 		return false;
 	}
 
-	// DEBUG_SERIAL << F("> Lex: using send context = ") << i << endl;
+	// VLOG("using send context = %u", context);
 
 	// initialise context
-	_send_context[i]->in_use = true;
-	// _send_context[i]->buffer = (byte *)msg;
+	_send_contexts[context]->in_use = true;
 
-	// determine if this is the current context for sequential transmissions
-	// we are current if no other contexts are current
+	// for sequential transmissions, determine if this new message is the current context
+	// we are current by default if no other contexts are current
+	// if we are not current, we will wait until the current message has been completely sent
 
 	if (_is_sequential) {
-		_send_context[i]->is_current = true;
+		_send_contexts[context]->is_current = true;											// this message is current by default, unless ...
+
+		// is another context current ?
 		for (j = 0; j < _num_send_contexts; j++) {
-			if (_send_context[j]->is_current) {
-				_send_context[i]->is_current = false;
+			if (j != context && _send_contexts[j]->is_current) {						// another context is current
+				_send_contexts[context]->is_current = false;									// so this message is not
+				break;
 			}
-			break;
+		}
+
+		if (_send_contexts[context]->is_current) {
+			current_send_context = context;																	// this is the only active context so make it the next to run
+			// VLOG("this message is current and will transmit now");
+		} else {
+			// VLOG("this message is not current and will wait");
 		}
 	}
 
-	if (_send_buffer_len > 0) {
+	if (!_is_sequential) {
+		byte num_in_use = 0;
+
+		for (j = 0; j < _num_send_contexts; j++) {
+			if (_send_contexts[j]->in_use) {
+				++num_in_use;
+			}
+		}
+
+		if (num_in_use == 1) {
+			current_send_context = context;																	// this is the only in-use context so make it the next to run
+			// VLOG("this is the only current non-sequential context in use");
+		}
+	}
+
+	if (_send_buffer_len > 0) {																					// if this context already has buffer space allocated
 		byte *ptr = (byte *) msg;
 		byte len = msg_len;
+
 		if (len > _send_buffer_len) {
 			len = _send_buffer_len;
 		}
 
-		memcpy(_send_context[i]->buffer, ptr, len);
-	}
-	else {
-		_send_context[i]->buffer = (byte *)strdup((char *)msg);		// copy the message to the send content, will free later
-	}
+		// VLOG("using existing send buffer space, size = %u, msg len = %u", _send_buffer_len, len);
+		memcpy(_send_contexts[context]->buffer, ptr, len);								// copy in the message data
 
-	_send_context[i]->send_buffer_len = msg_len;
-	_send_context[i]->send_stream_id = stream_id;
-	_send_context[i]->send_priority = priority;
-	_send_context[i]->send_buffer_index = 0;
-	_send_context[i]->last_fragment_sent = millis();
-
-	// calc CRC
-	if (_use_crc) {
-		msg_crc = crc16((uint8_t *)msg, msg_len);
+	} else {
+		// VLOG("duplicating message content - must free later");
+		_send_contexts[context]->buffer = (byte *)strdup((char *)msg);		// make a copy the message in the send context, will free later
 	}
 
-	// send the first fragment which forms the header message
-	frame.data[1] = _send_context[i]->send_stream_id;																	// the stream id
-	frame.data[2] = 0;																																// sequence number, 0 = header packet
-	frame.data[3] = highByte(_send_context[i]->send_buffer_len);										  // the message length
-	frame.data[4] = lowByte(_send_context[i]->send_buffer_len);
-	frame.data[5] = highByte(msg_crc);																							  // CRC, zero if not implemented
-	frame.data[6] = lowByte(msg_crc);
-	frame.data[7] = 0;																																// flags - 0 = standard data message
+	_send_contexts[context]->send_stream_id = stream_id;																			// stream ID
+	_send_contexts[context]->send_priority = priority;																				// CAN send priority
+	_send_contexts[context]->send_buffer_len = msg_len;																				// message length
+	_send_contexts[context]->send_buffer_index = 0;																						// current offset into data buffer
+	_send_contexts[context]->send_time = micros();																						// when this message was submitted, to ensure queued messages are sent in order
+	_send_contexts[context]->msg_crc = _use_crc ? crc16((uint8_t *)msg, msg_len) : 0;					// CRC
+	_send_contexts[context]->send_sequence_num = 0;																						// next fragmant to send is the header
+	_send_contexts[context]->last_fragment_sent = millis();																		// seed this value so message does not transmit immediately
 
-	bool ret = sendMessageFragment(&frame, _send_context[i]->send_priority);					// send the header packet
-	_send_context[i]->send_sequence_num = 1;																	  			// the next send sequence number - it's fine if it wraps around
+	// VLOG("message queued for transmission");
+	// VLOG("");
 
-	// DEBUG_SERIAL << F("> Lex: message header sent, stream id = ") << stream_id << F(", message length = ") << msg_len << F(", ret = ") << ret << endl;
-	return (ret);
+	return true;
 }
 
 //
-/// the process method is called regularly from the user's loop function
-/// we use this to send the individual fragments of any outgoing messages and check the message receive timeouts
+/// the process method is called regularly from the application loop function
+/// we use this to check for message receive timeouts and to send the individual fragments of any outgoing messages
 //
 
 bool CBUSLongMessageEx::process(void) {
@@ -501,83 +562,138 @@ bool CBUSLongMessageEx::process(void) {
 	byte i, j;
 	CANFrame frame;
 
-	static byte context = 0;				// we round-robin the context list when sending
-
 	/// check receive timeout for each active context
 
 	for (i = 0; i < _num_receive_contexts; i++) {
-		if (_receive_context[i]->in_use && (millis() - _receive_context[i]->last_fragment_received >= _receive_timeout)) {
-
-			// DEBUG_SERIAL << F("> Lex: ERROR: timed out waiting for continuation packet in context = ") << i << F(", timeout = ") << _receive_timeout << endl;
-			(void)(*_messagehandler)(_receive_context[i]->buffer, _receive_context[i]->receive_buffer_index, _receive_context[i]->receive_stream_id, CBUS_LONG_MESSAGE_TIMEOUT_ERROR);
-			_receive_context[i]->in_use = false;
-			// _receive_context[i]->incoming_message_length = 0;
-			// _receive_context[i]->incoming_bytes_received = 0;
+		if (_receive_contexts[i]->in_use && (millis() - _receive_contexts[i]->last_fragment_received >= _receive_timeout)) {
+			// VLOG("ERROR: tiemed out waiting for continuation fragment in context = %u, timeout = %u", i, _receive_timeout);
+			(void)(*_messagehandler)(_receive_contexts[i]->buffer, _receive_contexts[i]->receive_buffer_index, _receive_contexts[i]->receive_stream_id, CBUS_LONG_MESSAGE_TIMEOUT_ERROR);
+			_receive_contexts[i]->in_use = false;
 		}
 	}
 
-	/// send the next outgoing fragment from each active context, after a configurable delay to avoid flooding the bus
-	/// concurrent streams will be interleaved
+	/// select the next context to process
 
-	// if sequential, the context to use is he current one
+	/// if sequential, process the in-progress context until it has been completely sent, then activate the next context, if any
+
 	if (_is_sequential) {
 		for (j = 0; j < _num_send_contexts; j++) {
-			if (_send_context[j]->is_current) {
-				context = j;
+			if (_send_contexts[j]->in_use && _send_contexts[j]->is_current) {
+				current_send_context = j;
 				break;
 			}
 		}
 	}
 
-	if (_send_context[context]->in_use && millis() - _send_context[context]->last_fragment_sent >= _msg_delay)  {
+	/// process and send the next fragment of the selected context, after a configurable delay to avoid flooding the bus
 
-		// DEBUG_SERIAL << F("> Lex: processing send context = ") << context << endl;
+	if (_send_contexts[current_send_context]->in_use && (millis() - _send_contexts[current_send_context]->last_fragment_sent > _msg_delay) && (millis() - _last_fragment_sent > _msg_delay)) {
 
-		memset(&frame.data, 0, sizeof(frame.data));
-		frame.data[1] = _send_context[context]->send_stream_id;
-		frame.data[2] = _send_context[context]->send_sequence_num;
+		// VLOG("");
+		// VLOG("processing send context = %u, seq = %u, mode = %c", current_send_context, _send_contexts[current_send_context]->send_sequence_num, (_is_sequential ? 'S' : 'I'));
 
-		/// only the last fragment is potentially less than 5 bytes long
+		memset(&frame.data, 0, sizeof(frame.data));																											// clear the CAN message
+		frame.data[1] = _send_contexts[current_send_context]->send_stream_id;														// the stream id
+		frame.data[2] = _send_contexts[current_send_context]->send_sequence_num;												// sequence number
 
-		for (i = 0; i < 5 && _send_context[context]->send_buffer_index < _send_context[context]->send_buffer_len; i++) {								// for up to 5 bytes of payload
-			frame.data[i + 3] = _send_context[context]->buffer[_send_context[context]->send_buffer_index];																// take the next byte
-			// DEBUG_SERIAL << F("> Lex: consumed data byte = ") << (char)_send_context[context]->buffer[_send_context[context]->send_buffer_index] << endl;
-			++_send_context[context]->send_buffer_index;
-		}
+		if (_send_contexts[current_send_context]->send_sequence_num == 0) {															// it's the header fragment
 
-		ret = sendMessageFragment(&frame, _send_context[context]->send_priority);																												// send the data packet
-		// DEBUG_SERIAL << F("> Lex: process: sent message fragment, seq = ") << _send_context[context]->send_sequence_num << F(", size = ") << i << F(", ret  = ") << ret << endl;
+			// VLOG("sending header fragment for stream = %u", _send_contexts[current_send_context]->send_stream_id);
 
-		// release context once message content exhausted
-		if (_send_context[context]->send_buffer_index >= _send_context[context]->send_buffer_len) {
-			_send_context[context]->in_use = false;
-			_receive_context[i]->is_current = false;
-			_send_context[context]->send_buffer_len = 0;
+			// send the first fragment which forms the message header containing metadata
+			frame.data[3] = highByte(_send_contexts[current_send_context]->send_buffer_len);						  // the message length
+			frame.data[4] = lowByte(_send_contexts[current_send_context]->send_buffer_len);
+			frame.data[5] = highByte(_send_contexts[current_send_context]->msg_crc);										  // CRC, or zero if not implemented
+			frame.data[6] = lowByte(_send_contexts[current_send_context]->msg_crc);
+			frame.data[7] = 0;																																						// flags - 0 = standard data message
 
-			if (_send_buffer_len == 0) {
-				free(_send_context[context]->buffer);
+			_send_contexts[current_send_context]->last_fragment_sent = millis();													// timestamp when this fragment was sent
+
+		} else {																																												// it's a continuation fragment
+
+			// VLOG("sending continuation fragment for stream = %u", _send_contexts[current_send_context]->send_stream_id );
+
+			// only the final fragment is potentially less than 5 bytes long
+			for (i = 0; i < 5 && _send_contexts[current_send_context]->send_buffer_index < _send_contexts[current_send_context]->send_buffer_len; i++) {								// for up to 5 bytes of payload
+				frame.data[i + 3] = _send_contexts[current_send_context]->buffer[_send_contexts[current_send_context]->send_buffer_index];																// take the next byte
+				// VLOG("consumed data byte = %c", (char)_send_contexts[current_send_context]->buffer[_send_contexts[current_send_context]->send_buffer_index]);
+				++_send_contexts[current_send_context]->send_buffer_index;
 			}
 
-			// find another active context to make current
+			// VLOG("consumed %u data bytes for this fragment", i);
+		}
+
+		/// send the message fragment
+
+		ret = sendMessageFragment(&frame, _send_contexts[current_send_context]->send_priority);						// send the fragment
+		// VLOG("sent message fragment, seq = %u, ret = %u", _send_contexts[current_send_context]->send_sequence_num, ret);
+
+		/// release the context once message content is exhausted
+
+		if (_send_contexts[current_send_context]->send_buffer_index >= _send_contexts[current_send_context]->send_buffer_len) {
+
+			// VLOG("clearing completed context = %u", current_send_context);
+
+			_send_contexts[current_send_context]->in_use = false;
+			_send_contexts[current_send_context]->is_current = false;
+			_send_contexts[current_send_context]->send_buffer_len = 0;
+
+			if (_send_buffer_len == 0) {
+				// VLOG("freeing buffer");
+				free(_send_contexts[current_send_context]->buffer);
+			}
+
+			/// if sending sequentially, find the oldest active context and make it current
+
 			if (_is_sequential) {
+				bool found_next_context = false;
+				byte next_context_idx = 0;
+				unsigned long oldest_time = 0xffffffff;
+
+				// VLOG("looking for next sequential context to activate");
+
 				for (j = 0; j < _num_send_contexts; j++) {
-					if (_send_context[j].in_use) {
-						_send_context[j].is_current = true;
+					if (_send_contexts[j]->in_use && _send_contexts[j]->send_time < oldest_time) {
+						found_next_context = true;
+						next_context_idx = j;
+						oldest_time = _send_contexts[j]->send_time;
 						break;
 					}
 				}
+
+				if (found_next_context) {
+					_send_contexts[next_context_idx]->is_current = true;
+					// VLOG("next sequential context = %u", next_context_idx);
+				} else {
+					// VLOG("no context to activate");
+				}
 			}
 
-			// DEBUG_SERIAL << F("> Lex: message complete, context released") << endl;
+			// VLOG("** message sending complete, context released");
+
 		} else {
-			++_send_context[context]->send_sequence_num;
-			_send_context[context]->last_fragment_sent = millis();
+
+			// sending is not complete, increment counters
+			++_send_contexts[current_send_context]->send_sequence_num;
+			_send_contexts[current_send_context]->last_fragment_sent = millis();				// this context
+			// VLOG("next sequence number for this context = %u", _send_contexts[current_send_context]->send_sequence_num);
+		}
+
+		_last_fragment_sent = millis();																								// any context
+
+		// if interleaving, locate the next context to process by round-robin
+		if (!_is_sequential) {
+			for (j = 0; j < _num_send_contexts; j++) {
+				current_send_context = (current_send_context + 1) % _num_send_contexts;
+				if (_send_contexts[current_send_context]->in_use) {
+					break;
+				}
+			}
+
+			// VLOG("next non-sequential context = %u", current_send_context);
 		}
 	}
 
-	// increment context counter and wrap
-	++context;
-	context = (context >= _num_send_contexts) ? 0 : context;
 	return ret;
 }
 
@@ -597,20 +713,34 @@ void CBUSLongMessageEx::subscribe(byte *stream_ids, const byte num_stream_ids, v
 
 //
 /// report state of long message sending
-/// returns number of streams currently in progress
 //
+
+// return number of streams currently in progress
 
 byte CBUSLongMessageEx::is_sending(void) {
 
 	byte i, num_streams;
 
 	for (i = 0, num_streams = 0; i < _num_send_contexts; i++) {
-		if (_send_context[i]->in_use) {
+		if (_send_contexts[i]->in_use) {
 			++num_streams;
 		}
 	}
 
 	return num_streams;
+}
+
+// return whether currently sending a message with this stream id
+
+bool CBUSLongMessageEx::is_sending_stream(byte stream_id) {
+
+	for (byte i = 0; i < _num_send_contexts; i++) {
+		if (_send_contexts[i]->send_stream_id == stream_id && _send_contexts[i]->in_use) {
+			return true;
+		}
+	}
+
+	return false;
 }
 
 //
@@ -625,10 +755,10 @@ void CBUSLongMessageEx::processReceivedMessageFragment(const CANFrame *frame) {
 	// DEBUG_SERIAL << F("> Lex: handling incoming message fragment") << endl;
 	// DEBUG_SERIAL.flush();
 
-	if (frame->data[2] == 0) {																												  // sequence zero = a header packet with start of new stream
+	if (frame->data[2] == 0) {																												  // sequence zero = a header fragment with start of new stream
 		if (frame->data[7] == 0) {																												// flags = 0, standard message
 
-			// DEBUG_SERIAL << F("> Lex: this is a data message header packet") << endl;
+			// DEBUG_SERIAL << F("> Lex: this is a data message header fragment") << endl;
 
 			for (i = 0; i < _num_stream_ids; i++) {
 				if (_stream_ids[i] == frame->data[1]) {																				// are we subscribed to this stream id ?
@@ -637,41 +767,42 @@ void CBUSLongMessageEx::processReceivedMessageFragment(const CANFrame *frame) {
 
 					// find a free receive context
 					for (i = 0; i < _num_receive_contexts; i++) {
-						if (!_receive_context[i]->in_use) {
+						if (!_receive_contexts[i]->in_use) {
 							// DEBUG_SERIAL << F("> Lex: using receive context = ") << i << endl;
 							break;
 						}
 					}
 
 					if (i < _num_receive_contexts) {
-						_receive_context[i]->in_use = true;
-						_receive_context[i]->receive_stream_id = frame->data[1];
-						_receive_context[i]->incoming_message_length = (frame->data[3] << 8) + frame->data[4];
-						_receive_context[i]->incoming_message_crc = (frame->data[5] << 8) + frame->data[6];
-						_receive_context[i]->incoming_bytes_received = 0;
-						memset(_receive_context[i]->buffer, 0, _receive_buffer_len);
-						_receive_context[i]->receive_buffer_index = 0;
-						_receive_context[i]->expected_next_receive_sequence_num = 1;
-						_receive_context[i]->sender_canid = (frame->id & 0x7f);
-						_receive_context[i]->last_fragment_received = millis();
-						// DEBUG_SERIAL << F("> Lex: received header packet for stream id = ") << _receive_context[i]->receive_stream_id << F(", message length = ") << _receive_context[i]->incoming_message_length << endl;
+						_receive_contexts[i]->in_use = true;
+						_receive_contexts[i]->receive_stream_id = frame->data[1];
+						_receive_contexts[i]->incoming_message_length = (frame->data[3] << 8) + frame->data[4];
+						_receive_contexts[i]->incoming_message_crc = (frame->data[5] << 8) + frame->data[6];
+						_receive_contexts[i]->incoming_bytes_received = 0;
+						memset(_receive_contexts[i]->buffer, 0, _receive_buffer_len);
+						_receive_contexts[i]->receive_buffer_index = 0;
+						_receive_contexts[i]->expected_next_receive_sequence_num = 1;
+						_receive_contexts[i]->sender_canid = (frame->id & 0x7f);
+						_receive_contexts[i]->last_fragment_received = millis();
+						// DEBUG_SERIAL << F("> Lex: received header fragment for stream id = ") << _receive_contexts[i]->receive_stream_id << F(", message length = ") << _receive_contexts[i]->incoming_message_length << endl;
 					} else {
 						// DEBUG_SERIAL << F("> Lex: unable to find free receive context for new message") << endl;
+						(void)(*_messagehandler)(nullptr, 0, frame->data[1], CBUS_LONG_MESSAGE_INTERNAL_ERROR);
 					}
 
 					break;
 				}
 			}
 		} else {
-			// DEBUG_SERIAL << F("> Lex: not handling header packet with non-zero flags") << endl;
+			// DEBUG_SERIAL << F("> Lex: not handling header fragment with non-zero flags") << endl;
 		}
-	} else {																																					// continuation packet
+	} else {																																					// continuation fragment
 
-		// DEBUG_SERIAL << F("> Lex: this is a continuation packet") << endl;
+		// DEBUG_SERIAL << F("> Lex: this is a continuation fragment") << endl;
 
 		// find a matching receive context, using the stream ID and sender CANID
 		for (i = 0; i < _num_receive_contexts; i++) {
-			if (_receive_context[i]->in_use && _receive_context[i]->receive_stream_id == frame->data[1] && _receive_context[i]->sender_canid == (frame->id & 0x7f)) {
+			if (_receive_contexts[i]->in_use && _receive_contexts[i]->receive_stream_id == frame->data[1] && _receive_contexts[i]->sender_canid == (frame->id & 0x7f)) {
 				// DEBUG_SERIAL << F("> Lex: found matching receive context = ") << i << endl;
 				break;
 			}
@@ -684,52 +815,52 @@ void CBUSLongMessageEx::processReceivedMessageFragment(const CANFrame *frame) {
 		}
 
 		// error if out of sequence
-		if (frame->data[2] != _receive_context[i]->expected_next_receive_sequence_num) {
-			// DEBUG_SERIAL << F("> Lex: ERROR: expected receive sequence num = ") << _receive_context[i]->expected_next_receive_sequence_num << F(" but got = ") << frame->data[2] << endl;
-			(void)(*_messagehandler)(_receive_context[i]->buffer, _receive_context[i]->receive_buffer_index, _receive_context[i]->receive_stream_id, CBUS_LONG_MESSAGE_SEQUENCE_ERROR);
-			_receive_context[i]->in_use = false;
+		if (frame->data[2] != _receive_contexts[i]->expected_next_receive_sequence_num) {
+			// DEBUG_SERIAL << F("> Lex: ERROR: expected receive sequence num = ") << _receive_contexts[i]->expected_next_receive_sequence_num << F(" but got = ") << frame->data[2] << endl;
+			(void)(*_messagehandler)(_receive_contexts[i]->buffer, _receive_contexts[i]->receive_buffer_index, _receive_contexts[i]->receive_stream_id, CBUS_LONG_MESSAGE_SEQUENCE_ERROR);
+			_receive_contexts[i]->in_use = false;
 			return;
 		}
 
 		// consume up to 5 bytes of message data from this fragment
 		for (j = 0; j < 5; j++) {
 			// DEBUG_SERIAL << F("> Lex: consuming received data byte = ") << (char)frame->data[j + 3] << endl;
-			_receive_context[i]->buffer[_receive_context[i]->receive_buffer_index] = frame->data[j + 3];
-			++_receive_context[i]->receive_buffer_index;
-			++_receive_context[i]->incoming_bytes_received;
-			_receive_context[i]->last_fragment_received = millis();
+			_receive_contexts[i]->buffer[_receive_contexts[i]->receive_buffer_index] = frame->data[j + 3];
+			++_receive_contexts[i]->receive_buffer_index;
+			++_receive_contexts[i]->incoming_bytes_received;
+			_receive_contexts[i]->last_fragment_received = millis();
 
 			// if we have consumed the entire message, surface it to the user's handler
-			if (_receive_context[i]->incoming_bytes_received >= _receive_context[i]->incoming_message_length) {
+			if (_receive_contexts[i]->incoming_bytes_received >= _receive_contexts[i]->incoming_message_length) {
 				// DEBUG_SERIAL << F("> Lex: message data has been fully consumed") << endl;
 
-				if (_use_crc && _receive_context[i]->incoming_message_crc != 0) {
+				if (_use_crc && _receive_contexts[i]->incoming_message_crc != 0) {
 					// DEBUG_SERIAL << F("> Lex: calculating CRC16") << endl;
-					tmpcrc = crc16((uint8_t *)_receive_context[i]->buffer, _receive_context[i]->receive_buffer_index);
+					tmpcrc = crc16((uint8_t *)_receive_contexts[i]->buffer, _receive_contexts[i]->receive_buffer_index);
 				}
 
-				if (_receive_context[i]->incoming_message_crc != tmpcrc) {
-					// DEBUG_SERIAL << F("> Lex: message CRC error, expected = ") << _receive_context[i]->incoming_message_crc << F(", calculated = ") << tmpcrc << endl;
+				if (_receive_contexts[i]->incoming_message_crc != tmpcrc) {
+					// DEBUG_SERIAL << F("> Lex: message CRC error, expected = ") << _receive_contexts[i]->incoming_message_crc << F(", calculated = ") << tmpcrc << endl;
 					status = CBUS_LONG_MESSAGE_CRC_ERROR;
 				} else {
 					status = CBUS_LONG_MESSAGE_COMPLETE;
 				}
 
-				(void)(*_messagehandler)(_receive_context[i]->buffer, _receive_context[i]->receive_buffer_index, _receive_context[i]->receive_stream_id, status);
-				_receive_context[i]->in_use = false;
+				(void)(*_messagehandler)(_receive_contexts[i]->buffer, _receive_contexts[i]->receive_buffer_index, _receive_contexts[i]->receive_stream_id, status);
+				_receive_contexts[i]->in_use = false;
 				break;
 
 				// if the buffer is now full, give the user what we have with an error status
-			} else if (_receive_context[i]->receive_buffer_index >= _receive_buffer_len ) {
+			} else if (_receive_contexts[i]->receive_buffer_index >= _receive_buffer_len ) {
 				// DEBUG_SERIAL << F("> Lex: buffer is now full, message truncated") << endl;
-				(void)(*_messagehandler)(_receive_context[i]->buffer, _receive_context[i]->receive_buffer_index, _receive_context[i]->receive_stream_id, CBUS_LONG_MESSAGE_TRUNCATED);
-				_receive_context[i]->in_use = false;
+				(void)(*_messagehandler)(_receive_contexts[i]->buffer, _receive_contexts[i]->receive_buffer_index, _receive_contexts[i]->receive_stream_id, CBUS_LONG_MESSAGE_TRUNCATED);
+				_receive_contexts[i]->in_use = false;
 				break;
 			}
 		}
 
 		// increment the expected next sequence number for this stream context
-		++_receive_context[i]->expected_next_receive_sequence_num;
+		++_receive_contexts[i]->expected_next_receive_sequence_num;
 	}
 
 	return;
@@ -748,6 +879,7 @@ void CBUSLongMessageEx::use_crc(bool use_crc) {
 void CBUSLongMessageEx::set_sequential(bool state) {
 
 	_is_sequential = state;
+	return;
 }
 
 

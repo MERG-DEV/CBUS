@@ -1,4 +1,3 @@
-
 /*
 
   Copyright (C) Duncan Greenwood 2017 (duncan_greenwood@hotmail.com)
@@ -75,7 +74,8 @@ enum {
   CBUS_LONG_MESSAGE_SEQUENCE_ERROR,
   CBUS_LONG_MESSAGE_TIMEOUT_ERROR,
   CBUS_LONG_MESSAGE_CRC_ERROR,
-  CBUS_LONG_MESSAGE_TRUNCATED
+  CBUS_LONG_MESSAGE_TRUNCATED,
+  CBUS_LONG_MESSAGE_INTERNAL_ERROR
 };
 
 //
@@ -223,8 +223,8 @@ typedef struct _send_context_t {
   bool in_use, is_current;
   byte send_stream_id, send_priority, msg_delay;
   byte *buffer;
-  unsigned int send_buffer_len, send_buffer_index, send_sequence_num;
-  unsigned long last_fragment_sent;
+  unsigned int send_buffer_len, send_buffer_index, send_sequence_num, msg_crc;
+  unsigned long last_fragment_sent, send_time;
 } send_context_t;
 
 //
@@ -245,6 +245,7 @@ public:
   void subscribe(byte *stream_ids, const byte num_stream_ids, void (*messagehandler)(void *msg, unsigned int msg_len, byte stream_id, byte status));
   virtual void processReceivedMessageFragment(const CANFrame *frame);
   byte is_sending(void);
+  bool is_sending_stream(byte stream_id);
   void use_crc(bool use_crc);
   void set_sequential(bool state);
 
@@ -252,9 +253,9 @@ private:
 
   bool _use_crc = false;
   bool _is_sequential = false;
-  byte _num_receive_contexts = NUM_EX_CONTEXTS, _num_send_contexts = NUM_EX_CONTEXTS;
-  receive_context_t **_receive_context = nullptr;
-  send_context_t **_send_context = nullptr;
+  byte current_send_context, _num_receive_contexts = NUM_EX_CONTEXTS, _num_send_contexts = NUM_EX_CONTEXTS;
+  receive_context_t **_receive_contexts = nullptr;
+  send_context_t **_send_contexts = nullptr;
 };
 
 //
