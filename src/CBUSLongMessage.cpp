@@ -54,6 +54,7 @@ uint32_t crc32(const char *s, size_t n);
 #define VLOG_DEBUG 0
 #define DEBUG_MSG_LEN 256
 
+/*
 void VLOG(const char fmt[], ...) {
 
 #if VLOG_DEBUG == 0
@@ -74,6 +75,8 @@ void VLOG(const char fmt[], ...) {
 
 	return;
 }
+
+*/
 
 //
 /// constructor
