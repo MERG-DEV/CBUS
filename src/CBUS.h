@@ -118,6 +118,7 @@ public:
   virtual bool available(void) = 0;
   virtual CANFrame getNextMessage(void) = 0;
   virtual bool sendMessage(CANFrame *msg, bool rtr = false, bool ext = false, byte priority = DEFAULT_PRIORITY) = 0;
+  virtual bool sendMessageNoUpdate(CANFrame *msg) = 0;
   virtual void reset(void) = 0;
 
   // implementations of these methods are provided in the base class
@@ -129,6 +130,7 @@ public:
   bool isExt(CANFrame *msg);
   bool isRTR(CANFrame *msg);
   void process(byte num_messages = 3);
+  void process_single_message(CANFrame *msg);
   void initFLiM(void);
   void revertSLiM(void);
   void setSLiM(void);
@@ -142,6 +144,7 @@ public:
   void setEventHandler(void (*fptr)(byte index, CANFrame *msg));
   void setEventHandler(void (*fptr)(byte index, CANFrame *msg, bool ison, byte evval));
   void setFrameHandler(void (*fptr)(CANFrame *msg), byte *opcodes = NULL, byte num_opcodes = 0);
+  void setTransmitHandler(void (*fptr)(CANFrame *msg));
   void makeHeader(CANFrame *msg, byte priority = DEFAULT_PRIORITY);
   void processAccessoryEvent(unsigned int nn, unsigned int en, bool is_on_event);
 
@@ -160,6 +163,7 @@ protected:                                          // protected members become 
   void (*eventhandler)(byte index, CANFrame *msg);
   void (*eventhandlerex)(byte index, CANFrame *msg, bool evOn, byte evVal);
   void (*framehandler)(CANFrame *msg);
+  void (*transmithandler)(CANFrame *msg);
   byte *_opcodes;
   byte _num_opcodes;
   byte enum_responses[16];                          // 128 bits for storing CAN ID enumeration results
@@ -312,4 +316,138 @@ public:
 private:
   circular_buffer2 *coe_buff;
 };
+
+//
+/// pin set class, to encapsulate a set of 8 IO pins
+//
+
+class BoardIOPinSet {
+
+public:
+  BoardIOPinSet();
+  BoardIOPinSet(byte *_pins);
+  void setPins(byte *_pins);
+  byte pin(byte pin_number);
+  byte operator [] (byte i) const {return pin_array[i];}
+  byte& operator [] (byte i) {return pin_array[i];}
+
+private:
+  byte pin_array[8];
+};
+
+//
+/// base board class
+//
+
+class MainBoardBase {
+
+public:
+  MainBoardBase();
+  ~MainBoardBase();
+};
+
+//
+/// specific hardware classes
+//
+
+class Pico_Mainboard_rev_C : public MainBoardBase {
+
+public:
+  Pico_Mainboard_rev_C();
+  ~Pico_Mainboard_rev_C();
+
+  BoardIOPinSet upper;
+  BoardIOPinSet lower;
+  byte slim_led_pin = 21;
+  byte flim_led_pin = 20;
+  byte switch_pin = 22;
+  byte cantx_pin = 1;
+  byte canrx_pin = 2;
+
+private:
+  byte upper_pins[8] = {12, 11, 10, 9, 8, 7, 6, 0};
+  byte lower_pins[8] = {28, 27, 26, 17, 16, 15, 14, 13};
+};
+
+//
+
+class MegaAVR_mainboard_rev_C : public MainBoardBase {
+
+public:
+  MegaAVR_mainboard_rev_C();
+  ~MegaAVR_mainboard_rev_C();
+
+  BoardIOPinSet upper, lower;
+  byte slim_led_pin = 22;
+  byte flim_led_pin = 23;
+  byte switch_pin = 24;
+  byte cantx_pin = 255;
+  byte canrx_pin = 255;
+
+private:
+  byte upper_pins[8] = {14, 15, 16, 17, 18, 19, 20, 21};
+  byte lower_pins[8] = {28, 11, 10, 9, 8, 12, 13, 25};
+};
+
+//
+
+class ESP32_mainboard_rev_C : public MainBoardBase {
+
+public:
+  ESP32_mainboard_rev_C();
+  ~ESP32_mainboard_rev_C();
+
+  BoardIOPinSet upper, lower;
+  byte slim_led_pin = 22;
+  byte flim_led_pin = 23;
+  byte switch_pin = 24;
+  byte cantx_pin = 255;
+  byte canrx_pin = 255;
+
+private:
+  byte upper_pins[8] = {33, 0, 1, 3, 21, 19, 18, 5};
+  byte lower_pins[8] = {32, 14, 12, 13, 17, 16, 23, 22};
+};
+
+//
+
+class Nano_mainboard_rev_C : public MainBoardBase {
+
+public:
+  Nano_mainboard_rev_C();
+  ~Nano_mainboard_rev_C();
+
+  BoardIOPinSet upper, lower;
+  byte slim_led_pin = 22;
+  byte flim_led_pin = 23;
+  byte switch_pin = 24;
+  byte cantx_pin = 255;
+  byte canrx_pin = 255;
+
+private:
+  byte upper_pins[8] = {14, 19, 18, 15, 16, 17, 3, 9};
+  byte lower_pins[8] = {255, 255, 255, 255, 255, 255, 255, 255};
+};
+
+//
+
+class AVRDA_mainboard_rev_C : public MainBoardBase {
+
+public:
+  AVRDA_mainboard_rev_C();
+  ~AVRDA_mainboard_rev_C();
+
+  BoardIOPinSet upper, lower;
+  byte slim_led_pin = 22;
+  byte flim_led_pin = 23;
+  byte switch_pin = 24;
+  byte cantx_pin = 255;
+  byte canrx_pin = 255;
+
+private:
+  byte upper_pins[8] = {15, 11, 10, 9, 8, 12, 13, 14};
+  byte lower_pins[8] = {255, 255, 255, 255, 255, 255, 255, 255};
+};
+
+//
 
