@@ -130,7 +130,7 @@ public:
   bool isExt(CANFrame *msg);
   bool isRTR(CANFrame *msg);
   void process(byte num_messages = 3);
-  void process_single_message(CANFrame *msg);
+  void process_single_message(CANFrame *msg, const bool ignore_id_clash=false);
   void initFLiM(void);
   void revertSLiM(void);
   void setSLiM(void);

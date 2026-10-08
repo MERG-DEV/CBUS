@@ -455,7 +455,7 @@ void CBUSbase::process(byte num_messages) {
 /// process a single CBUS messages
 //
 
-void CBUSbase::process_single_message(CANFrame *msg) {
+void CBUSbase::process_single_message(CANFrame *msg, const bool ignore_id_clash) {
 
   byte remoteCANID, evindex, evval, opc;
   uint16_t nn, en;
@@ -512,7 +512,7 @@ void CBUSbase::process_single_message(CANFrame *msg) {
     return;
   }
 
-  if (msg->len > 0 && remoteCANID == module_config->CANID && nn != module_config->nodeNum && !bCANenum) {
+  if (msg->len > 0 && remoteCANID == module_config->CANID && nn != module_config->nodeNum && !bCANenum && !ignore_id_clash) {
     // DEBUG_SERIAL << F("> CAN id clash, enumeration required") << endl;
     enumeration_required = true;
   }
